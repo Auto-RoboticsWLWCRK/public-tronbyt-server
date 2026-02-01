@@ -6,11 +6,10 @@ import sqlite3
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi_babel import Babel, BabelConfigs, BabelMiddleware
 from starlette.middleware.sessions import SessionMiddleware
@@ -23,6 +22,7 @@ from tronbyt_server.dependencies import (
     get_db,
 )
 from tronbyt_server.routers import api, auth, manager, websockets
+from tronbyt_server.routers import supabase_auth as supabase_auth_router
 from tronbyt_server.templates import templates
 
 MODULE_ROOT = Path(__file__).parent.resolve()
@@ -71,17 +71,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logging.basicConfig(level=get_settings().LOG_LEVEL)
     logger = logging.getLogger(__name__)
 
-    # Backup the database before initializing (only in production)
+    # Backup the database before initializing (only in production and local auth mode)
     settings = get_settings()
-    if settings.PRODUCTION == "1":
+    if settings.PRODUCTION == "1" and settings.AUTH_MODE == "local":
         backup_database(settings.DB_FILE, logger)
     else:
-        logger.info("Development mode - skipping database backup")
+        if settings.AUTH_MODE == "supabase":
+            logger.info("Supabase mode - skipping SQLite database backup")
+        else:
+            logger.info("Development mode - skipping database backup")
 
-    db_connection = next(get_db(settings=settings))
-    with db_connection:
-        db.init_db(db_connection)
+    # Only initialize SQLite database in local auth mode
+    if settings.AUTH_MODE == "local":
+        db_connection = next(get_db(settings=settings))
+        with db_connection:
+            db.init_db(db_connection)
+
     yield
+
     # Shutdown
     from tronbyt_server.sync import get_sync_manager
 
@@ -104,11 +111,40 @@ app.add_middleware(
 )
 Babel(configs=babel_configs)
 
+# Add rate limiting middleware (optional, requires slowapi)
+try:
+    from slowapi.errors import RateLimitExceeded
+
+    from tronbyt_server.rate_limit import limiter, rate_limit_exceeded_handler
+
+    if limiter is not None:
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+except ImportError:
+    pass  # slowapi not installed, rate limiting disabled
+
 
 @app.exception_handler(NotAuthenticatedException)
 def handle_auth_exception(request: Request, exc: NotAuthenticatedException) -> Response:
     """Redirect the user to the login page if not logged in."""
     return auth_exception_handler(request, exc)
+
+
+@app.get("/health", tags=["health"])
+def health_check() -> JSONResponse:
+    """Health check endpoint for Render and other platforms.
+
+    Returns:
+        JSONResponse with status and auth mode.
+    """
+    settings = get_settings()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={
+            "status": "healthy",
+            "auth_mode": settings.AUTH_MODE,
+        },
+    )
 
 
 app.mount("/static", StaticFiles(directory=MODULE_ROOT / "static"), name="static")
@@ -117,3 +153,7 @@ app.include_router(api.router)
 app.include_router(auth.router)
 app.include_router(manager.router)
 app.include_router(websockets.router)
+
+# Include Supabase auth router (endpoints work regardless of auth mode,
+# but will return appropriate errors when not in supabase mode)
+app.include_router(supabase_auth_router.router)
