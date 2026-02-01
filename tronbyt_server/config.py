@@ -1,9 +1,9 @@
 """Application configuration."""
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
 from functools import lru_cache
+from typing import Literal
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -23,6 +23,16 @@ class Settings(BaseSettings):
     ENABLE_USER_REGISTRATION: str = "0"
     LOG_LEVEL: str = "WARNING"
     SYSTEM_APPS_REPO: str = "https://github.com/tronbyt/apps.git"
+
+    # Supabase settings (required for multi-tenant mode)
+    AUTH_MODE: Literal["local", "supabase"] = "local"
+    SUPABASE_URL: str = ""
+    SUPABASE_ANON_KEY: str = ""
+    SUPABASE_SERVICE_ROLE_KEY: str = ""
+
+    # Rate limiting settings
+    RATE_LIMIT_REQUESTS: int = 60
+    RATE_LIMIT_BURST: int = 10
 
 
 @lru_cache

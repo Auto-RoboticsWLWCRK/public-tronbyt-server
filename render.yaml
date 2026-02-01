@@ -1,8 +1,33 @@
 services:
-- type: web
-  name: tronbyt-server
-  runtime: image
-  image:
-    url: ghcr.io/tronbyt/server:latest
-  plan: free
+  - type: web
+    name: tronbyt-server
+    runtime: image
+    image:
+      url: ghcr.io/tronbyt/server:latest
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      # Supabase configuration (required for multi-tenant mode)
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Authentication mode: "local" (default) or "supabase"
+      - key: AUTH_MODE
+        value: local
+      # Session secret key (auto-generated)
+      - key: SECRET_KEY
+        generateValue: true
+      # Production mode
+      - key: PRODUCTION
+        value: "1"
+      # Logging level
+      - key: LOG_LEVEL
+        value: WARNING
+    disk:
+      name: tronbyt-data
+      mountPath: /app/data
+      sizeGB: 1
 version: "1"
