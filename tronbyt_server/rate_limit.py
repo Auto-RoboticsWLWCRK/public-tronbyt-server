@@ -18,10 +18,14 @@ Usage:
 """
 
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+
+if TYPE_CHECKING:
+    from slowapi import Limiter
+    from slowapi.errors import RateLimitExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ def get_rate_limit_key(request: Request) -> str:
     return "unknown"
 
 
-def create_limiter() -> "Limiter | None":  # type: ignore[name-defined]  # noqa: F821
+def create_limiter() -> "Limiter | None":
     """Create a SlowAPI limiter instance.
 
     Returns:
@@ -80,7 +84,7 @@ def create_limiter() -> "Limiter | None":  # type: ignore[name-defined]  # noqa:
 
 def rate_limit_exceeded_handler(
     request: Request, exc: "RateLimitExceeded"
-) -> JSONResponse:  # type: ignore[name-defined]  # noqa: F821
+) -> JSONResponse:
     """Handle rate limit exceeded errors.
 
     Args:
@@ -92,14 +96,16 @@ def rate_limit_exceeded_handler(
     """
     logger.warning(f"Rate limit exceeded for {get_rate_limit_key(request)}")
 
+    # Cast exc to Any to access attributes that may not be statically typed
+    exc_any: Any = exc
     return JSONResponse(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         content={
             "error": "Rate limit exceeded",
-            "detail": str(exc.detail)
-            if hasattr(exc, "detail")
+            "detail": str(exc_any.detail)
+            if hasattr(exc_any, "detail")
             else "Too many requests",
-            "retry_after": getattr(exc, "retry_after", 60),
+            "retry_after": getattr(exc_any, "retry_after", 60),
         },
     )
 
@@ -108,7 +114,7 @@ def rate_limit_exceeded_handler(
 limiter = create_limiter()
 
 
-def rate_limit(limit: str) -> Callable:
+def rate_limit(limit: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Decorator to apply rate limiting to a route.
 
     This is a wrapper around the slowapi limiter.limit() decorator.
@@ -124,7 +130,7 @@ def rate_limit(limit: str) -> Callable:
         return limiter.limit(limit)
 
     # No-op decorator if limiter is not available
-    def no_op_decorator(func: Callable) -> Callable:
+    def no_op_decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         return func
 
     return no_op_decorator

@@ -88,7 +88,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             db.init_db(db_connection)
 
     yield
-
     # Shutdown
     from tronbyt_server.sync import get_sync_manager
 

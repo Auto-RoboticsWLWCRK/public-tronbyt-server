@@ -221,10 +221,12 @@ async def get_user_and_device_from_api_key(
         if token_response.data:
             user_id = token_response.data[0]["user_id"]
 
-            # Update last_used_at
-            supabase.table("api_tokens").update({"last_used_at": "now()"}).eq(
-                "token", api_key
-            ).execute()
+            # Update last_used_at with current timestamp
+            from datetime import datetime, timezone
+
+            supabase.table("api_tokens").update(
+                {"last_used_at": datetime.now(timezone.utc).isoformat()}
+            ).eq("token", api_key).execute()
 
             # Get user profile
             profile_response = (
